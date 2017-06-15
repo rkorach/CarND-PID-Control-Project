@@ -34,6 +34,34 @@ int main()
 
   PID pid;
   // TODO: Initialize the pid variable.
+  double Kp = 0.2;
+  double Ki = 0.0;
+  double Kd = 1.2;
+  // These hyperparameters have been manually tuned.
+  
+  /******************************
+   TOREAD (hyperparameter tuning)
+   ******************************
+   After looking at the behavior on a straight line, I considered that there was not too much Bias.
+   Hence I set Ki to 0.0
+   Just like with the proportional parameter only, to have an understanding of what should be the ballpark to target
+   - 1.0 was way too much (car shoots left and right like crazy, steering is always at its cap of 1 or -1)
+   - 0.01 was too low (car fails to adjust rapidly enough and goes too straight to follow even the sligthest curve)
+   -> 0.1 was my starting point for Kp, but car would overshoot and wiggle too much, especially when the first turn arrived
+
+   Time to absorb this with the differential parameter!
+   Same process, I started with 0.1 this time, up to 0.5, then 0.8.
+
+   Car would go further, but would not turn enough on sharp turns.
+   -> I had to raise Kp to react more quickly to sharp turns,
+   but also raise Kd to make sure that after turning the car doesn't overshoot too much and wiggle again.
+
+   Kp = 0.2, Kd = 1.2, and Ki = 0.0 work fine to drive the track indefinitely
+   (I also adapt the throttle depending on steering angle, see below, l.94)
+   ******************************/
+
+  // init the pid with its coefficients
+  pid.Init(Kp, Ki, Kd);
 
   h.onMessage([&pid](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length, uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
@@ -57,13 +85,30 @@ int main()
           * NOTE: Feel free to play around with the throttle and speed. Maybe use
           * another PID controller to control the speed!
           */
+
+          // TOREAD update errors in pid object, then update steering angle with the pid formula!
+          pid.UpdateError(cte);
+          steer_value = - pid.Kp * pid.p_error - pid.Kd * pid.d_error - pid.Ki * pid.i_error;
           
+          // limit the throttle if the steering angle is high (to go slower in turns)
+          double throttle = 0.3*(1-std::abs(steer_value));
+
+          // TOREAD tiny bit of logging, to feel how it goes and debug
+          std::cout << "Kp: " << pid.Kp << " Kd: " << pid.Kd << " Ki: " << pid.Ki << std::endl;
+          std::cout << "p_error: " << pid.p_error << " d_error: " << pid.d_error << " i_error: " << pid.i_error << std::endl;
+
+          if (steer_value < -1) {
+            steer_value = -1;
+          }
+          if (steer_value > 1) {
+            steer_value = 1;
+          }
           // DEBUG
           std::cout << "CTE: " << cte << " Steering Value: " << steer_value << std::endl;
 
           json msgJson;
           msgJson["steering_angle"] = steer_value;
-          msgJson["throttle"] = 0.3;
+          msgJson["throttle"] = throttle;
           auto msg = "42[\"steer\"," + msgJson.dump() + "]";
           std::cout << msg << std::endl;
           ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
